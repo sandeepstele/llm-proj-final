@@ -1,6 +1,6 @@
-# llmauto
+# LLM-Based-Workflow-automation 
 
-**llmauto** is a FastAPI-based automation agent that leverages Large Language Models (LLMs) to execute tasks described in plain English. It integrates structured tool functions, such as transcribing audio, processing CSV files, running SQL queries, scraping webpages, and more, based on user-defined tasks.
+**LLM-Based-Workflow-automation ** is a FastAPI-based automation agent that leverages Large Language Models (LLMs) to execute tasks described in plain English. It integrates structured tool functions, such as transcribing audio, processing CSV files, running SQL queries, scraping webpages, and more, based on user-defined tasks.
 
 ## Table of Contents
 - [Overview](#overview)
