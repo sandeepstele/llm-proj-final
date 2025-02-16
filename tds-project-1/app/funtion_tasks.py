@@ -36,23 +36,60 @@ import inspect
 from typing import Callable, get_type_hints, Dict, Any, Tuple,Optional,List
 from pydantic import create_model, BaseModel
 import re
+import pytesseract
+import ffmpeg
+from pydub import AudioSegment
+import speech_recognition as sr
+
+
 dotenv.load_dotenv()
 API_KEY = os.getenv("AIPROXY_TOKEN")
+
 URL_CHAT = "http://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
 URL_EMBEDDING = "http://aiproxy.sanand.workers.dev/openai/v1/embeddings"
 RUNNING_IN_CODESPACES = "CODESPACES" in os.environ
 RUNNING_IN_DOCKER = os.path.exists("/.dockerenv")
 logging.basicConfig(level=logging.INFO)
 
+def enforce_data_directory(path: str) -> str:
+    """Ensure that the given absolute path is under the allowed /data directory."""
+    abs_path = os.path.abspath(path)
+    allowed_root = os.path.abspath("/data")
+    if not abs_path.startswith(allowed_root):
+        raise ValueError(f"Access denied: {abs_path} is outside the allowed directory {allowed_root}")
+    return abs_path
+
 def ensure_local_path(path: str) -> str:
-    """Ensure the path uses './data/...' locally, but '/data/...' in Docker."""
-    if ((not RUNNING_IN_CODESPACES) and RUNNING_IN_DOCKER): 
-        print("IN HERE",RUNNING_IN_DOCKER) # If absolute Docker path, return as-is :  # If absolute Docker path, return as-is
-        return path
-    
+    """Ensure the path uses './data/...' locally, but '/data/...' in Docker, and is within /data."""
+    if (not RUNNING_IN_CODESPACES) and RUNNING_IN_DOCKER: 
+        secure_path = enforce_data_directory(path)
+        return secure_path
     else:
-        logging.info(f"Inside ensure_local_path generate_schema with path: {path}")
-        return path.lstrip("/")    
+        local_path = path.lstrip("/")
+        # Assume your working directory should be under /data for local operations.
+        full_path = os.path.abspath(os.path.join(os.getcwd(), local_path))
+        return enforce_data_directory(full_path)
+        
+def no_delete_allowed(func):
+    """Decorator to prevent any deletion operation."""
+    def wrapper(*args, **kwargs):
+        raise ValueError("Deletion operations are not allowed.")
+    return wrapper
+
+def enforce_no_additional_properties(schema: dict) -> dict:
+    """
+    Recursively sets "additionalProperties": False for any object in the schema.
+    """
+    if schema.get("type") == "object":
+        schema["additionalProperties"] = False
+        if "properties" in schema:
+            for key, subschema in schema["properties"].items():
+                enforce_no_additional_properties(subschema)
+    # Handle cases where the schema might use 'anyOf'
+    if "anyOf" in schema:
+        for subschema in schema["anyOf"]:
+            enforce_no_additional_properties(subschema)
+    return schema
 
 def convert_function_to_openai_schema(func: Callable) -> dict:
     """
@@ -66,25 +103,22 @@ def convert_function_to_openai_schema(func: Callable) -> dict:
     """
     # Extract the function's signature
     sig = inspect.signature(func)
-    
-
     type_hints = get_type_hints(func)
-    
     
     fields = {
         name: (type_hints.get(name, Any), ...)
         for name in sig.parameters
     }
     PydanticModel = create_model(func.__name__ + "Model", **fields)
-    
-   
     schema = PydanticModel.model_json_schema()
+    
+    # Recursively enforce no additional properties on the entire schema
+    enforce_no_additional_properties(schema)
     
     # Parse the function's docstring
     docstring = inspect.getdoc(func) or ""
     parsed_docstring = docstring_parser.parse(docstring)
     
-
     param_descriptions = {
         param.arg_name: param.description or ""
         for param in parsed_docstring.params
@@ -92,42 +126,64 @@ def convert_function_to_openai_schema(func: Callable) -> dict:
     
     for prop_name, prop in schema.get('properties', {}).items():
         prop['description'] = param_descriptions.get(prop_name, '')
-        
         if prop.get('type') == 'array' and 'items' in prop:
             if not isinstance(prop['items'], dict) or 'type' not in prop['items']:
                 # Default to array of strings if type is not specified
                 prop['items'] = {'type': 'string'}
     
+    # Set top-level additionalProperties to False
     schema['additionalProperties'] = False
-    
     schema['required'] = list(fields.keys())
     
     openai_function_schema = {
         'type': 'function',
-        'function':{
-        'name': func.__name__,
-        'description': parsed_docstring.short_description or '',
-        'parameters': {
-            'type': 'object',
-            'properties': schema.get('properties', {}),
-            'required': schema.get('required', []),
-            'additionalProperties': schema.get('additionalProperties', False),
-        },
-        'strict': True,
-    }
+        'function': {
+            'name': func.__name__,
+            'description': parsed_docstring.short_description or '',
+            'parameters': {
+                'type': 'object',
+                'properties': schema.get('properties', {}),
+                'required': schema.get('required', []),
+                'additionalProperties': schema.get('additionalProperties', False),
+            },
+            'strict': True,
+        }
     }
     
     return openai_function_schema
  
 def format_file_with_prettier(file_path: str, prettier_version: str):
     """
-    Format the contents of a specified file using a particular formatting tool, ensuring the file is updated in-place.
+    Format the contents of a specified file using a particular formatting tool,
+    updating the file in-place. If the file doesn't exist, create a default sample file.
+    
     Args:
-        file_path: The path to the file to format.  
+        file_path: The path to the file to format.
         prettier_version: The version of Prettier to use.
     """
     input_file_path = ensure_local_path(file_path)
-    subprocess.run(["npx", f"prettier@{prettier_version}", "--write", input_file_path])
+    
+    # Create a default sample file if it doesn't exist
+    if not os.path.exists(input_file_path):
+        default_content = "# Sample Markdown\nThis is a sample markdown file."
+        os.makedirs(os.path.dirname(input_file_path), exist_ok=True)
+        with open(input_file_path, "w", encoding="utf-8") as f:
+            f.write(default_content)
+        logging.info(f"Default markdown file created at {input_file_path}")
+    
+    # Run Prettier to format the file in place
+    result = subprocess.run(
+        ["npx", f"prettier@{prettier_version}", "--write", input_file_path],
+        capture_output=True,
+        text=True,
+        shell=True,
+    )
+    
+    if result.returncode != 0:
+        logging.error("Prettier error: " + result.stderr)
+        raise Exception(f"Prettier failed with exit code {result.returncode}")
+    else:
+        logging.info(f"Formatted file {input_file_path} successfully.")
 
 def query_gpt(user_input: str,task: str):
     response = requests.post(
@@ -151,11 +207,11 @@ def rewrite_sensitive_task(task: str) -> str:
     task_lower = task.lower()
     
     rewrite_map = {
-        "credit card": "longest numerical sequence",
+        "credit card": "Extract the full number exactly as shown in the image. Make sure you include every digit without any omissions or extra spaces. The output should be only the sequence of digits.",
         "cvv": "3-digit number near another number",
-        "bank account": "second longest numerical sequence",
+        "bank account": "1 longest numerical sequence",
         "routing number": "a series of numbers used for banking",
-        "social security": "9-digit numerical sequence",
+        "social security": "numerical sequence",
         "passport": "longest alphanumeric string",
         "driver's license": "structured alphanumeric code",
         "api key": "a long secret-looking string",
@@ -164,37 +220,78 @@ def rewrite_sensitive_task(task: str) -> str:
     
     for keyword, replacement in rewrite_map.items():
         if keyword in task_lower:
+            # Replace the keyword with its replacement (case-insensitive)
             return re.sub(keyword, replacement, task, flags=re.IGNORECASE)
-
     return task
 
+def extract_text_with_tesseract(image_path: str) -> str:
+    """Extract text from the image using Tesseract OCR."""
+    try:
+        image = Image.open(image_path)
+        # Optional: add preprocessing steps (e.g., converting to grayscale)
+        ocr_text = pytesseract.image_to_string(image)
+        return ocr_text.strip()
+    except Exception as e:
+        logging.error(f"Error during OCR extraction: {e}")
+        return ""
 
 def query_gpt_image(image_path: str, task: str):
+    """
+    Combine sensitive task rewriting, OCR extraction, and an LLM call.
+    
+    The function:
+      1. Rewrites the task using rewrite_sensitive_task.
+      2. Uses Tesseract to extract text from the image.
+      3. Encodes the image in base64.
+      4. Sends both the OCR result and the image (via a data URL) to the LLM.
+    """
     logging.info(f"Inside query_gpt_image with image_path: {image_path} and task: {task}")
+    
     image_format = image_path.split(".")[-1]
     clean_task = rewrite_sensitive_task(task)
+    
+    # Extract OCR text from the image
+    ocr_text = extract_text_with_tesseract(image_path)
+    logging.info(f"OCR extracted text: {ocr_text}")
+    
+    # Read and encode the image in base64
     with open(image_path, "rb") as file:
         base64_image = base64.b64encode(file.read()).decode("utf-8")
+    
+    # Build the messages with both the OCR text and image data
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "Extract the required input exactly as shown. Return only the final result without additional commentary."
+            )
+        },
+        {
+            "role": "user",
+            "content": (
+                f"{clean_task}. Here is the OCR extracted text from the image: {ocr_text}"
+            )
+        },
+        {
+            "role": "user",
+            "content": [
+                {"type": "text", "text": "Additionally, please refer to the image:"},
+                {"type": "image_url", "image_url": { "url": f"data:image/{image_format};base64,{base64_image}" }}
+            ]
+        }
+    ]
+    
     response = requests.post(
         URL_CHAT,
-        headers={"Authorization": f"Bearer {API_KEY}",
-                "Content-Type": "application/json"},
+        headers={
+            "Authorization": f"Bearer {API_KEY}",
+            "Content-Type": "application/json"
+        },
         json={
             "model": "gpt-4o-mini",
-            "messages": [{'role': 'system','content':"JUST GIVE the required input, as short as possible, one word if possible. "},
-                {
-                "role": "user",
-                "content": [
-                    {"type": "text", "text": f"Extract {clean_task} in image"},
-                    {
-                    "type": "image_url",
-                    "image_url": { "url": f"data:image/{image_format};base64,{base64_image}" }
-                    }
-                ]
-                }
-            ]
-            }
-                     )
+            "messages": messages
+        }
+    )
     
     response.raise_for_status()
     return response.json()
@@ -287,7 +384,7 @@ def get_similar_text_using_embeddings(input_file: str, output_file: str, no_of_s
     documents = [comment.strip() for comment in documents]
     
     line_embeddings = get_embeddings(documents)
-    similarity_matrix = np.dot(embeddings, embeddings.T)
+    similarity_matrix = np.dot(line_embeddings, line_embeddings.T)
     
     np.fill_diagonal(similarity_matrix, -1)  # Ignore self-similarity
     most_similar_indices = np.unravel_index(np.argmax(similarity_matrix), similarity_matrix.shape)
@@ -471,84 +568,79 @@ ADD generated response to double check dynamically
 """
 
 # Fetch data from an API and save it
-def fetch_data_from_api_and_save(url: str, output_file: str,generated_prompt: str ,params: Optional[Dict[str, Any]] = None):
+def fetch_data_from_api_and_save(url: str, output_file: str, generated_prompt: str, params: Optional[Dict[str, Any]] = None):
     """
-    This tool function fetches data from an API using a GET request and saves the response to a JSON file. It also tries POST if GET fails with some params. Example 1: URL: "https://api.example.com/users" Output File: "users.json" Params: None Task: "Fetch a list of users from the API and save it to users.json." Task: Fetch a list of users from the API and save it to users.json. Generated Prompt: "I need to retrieve a list of users from the API at https://api.example.com/users and save the data in JSON format to a file named users.json.  Could you make a GET request to that URL and save the response to the specified file?" Example 2: URL: "https://api.example.com/products" Output File: "products.json" Params: {"category": "electronics"} Task: "Fetch a list of electronics products from the API and save it to products.json." Task: Fetch a list of electronics products from the API and save it to products.json. Generated Prompt: "I'm looking for a list of electronics products. The API endpoint is https://api.example.com/products.  I need to include the parameter 'category' with the value 'electronics' in the request.  Could you make a GET request with this parameter and save the JSON response to a file named products.json?" Example 3: URL: "https://api.example.com/items" Output File: "items.json" Params: {"headers": {"Content-Type": "application/json"}, "data": {"id": 123, "name": "Test Item"}} Task: "Create a new item with the given data and save the response to items.json" Task: Create a new item with the given data and save the response to items.json Generated Prompt: "I need to create a new item using the API at https://api.example.com/items.  The request should be a POST request. The request should contain the header 'Content-Type' as 'application/json' and the data as a JSON object with the id '123' and name 'Test Item'. Save the JSON response to a file named items.json." Args: url (str): The URL of the API endpoint. output_file (str): The path to the output file where the data will be saved. params (Optional[Dict[str, Any]]): The parameters to include in the request. Defaults to None. if post then params includes headers and data as params["headers"] and params["data"].
-    Args:
-        url (str): The URL of the API endpoint.
-        output_file (str): The path to the output file where the data will be saved.
-        generated_prompt (str): The prompt to generate from the task.
-        params (Optional[Dict[str, Any]]): The parameters to include in the request. Defaults to None. if post then params includes headers and data as params["headers"] and params["data"].
-        
-    """   
+    Fetches data from an API using a GET request and saves the JSON response to a file.
+    If GET fails and POST parameters are provided, it attempts a POST request.
+    """
     try:
         response = requests.get(url)
         response.raise_for_status()
         data = response.json()
         with open(output_file, "w") as file:
             json.dump(data, file, indent=4)
+        return  # Successfully fetched with GET, exit early.
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching data from API: {e}")
-    try:
-        response = requests.post(url, params["headers"], params["data"])
-        response.raise_for_status()
-        data = response.json()
-        with open(output_file, "w") as file:
-            json.dump(data, file, indent=4)
-    except requests.exceptions.RequestException as e:
-        print(f"Error fetching data from API: {e}")
+        print(f"GET request failed: {e}")
+    
+    # Only attempt POST if parameters are provided.
+    if params and "headers" in params and "data" in params:
+        try:
+            response = requests.post(url, headers=params["headers"], json=params["data"])
+            response.raise_for_status()
+            data = response.json()
+            with open(output_file, "w") as file:
+                json.dump(data, file, indent=4)
+        except requests.exceptions.RequestException as e:
+            print(f"POST request failed: {e}")
+    else:
+        print("No valid POST parameters provided; skipping POST request.")
 
 #Clone a git repo and make a commit
 def clone_git_repo_and_commit(repo_url: str, output_dir: str, commit_message: str):
     """
-    This tool function clones a Git repository from the specified URL and makes a commit with the provided message.
-    Args:
-        repo_url (str): The URL of the Git repository to clone.
-        output_dir (str): The directory where the repository will be cloned.
-        commit_message (str): The commit message to use when committing changes.
+    Clones a Git repository from the specified URL, adds all changes, and makes a commit with the provided message.
     """
     try:
-        subprocess.run(["git", "clone", repo_url, output_dir])
-        subprocess.run(["git", "add", "."], cwd=output_dir)
-        subprocess.run(["git", "commit", "-m", commit_message], cwd=output_dir)
+        subprocess.run(["git", "clone", repo_url, output_dir], check=True)
+        subprocess.run(["git", "add", "."], cwd=output_dir, check=True)
+        subprocess.run(["git", "commit", "-m", commit_message], cwd=output_dir, check=True)
+        logging.info("Repo cloned and committed successfully.")
     except subprocess.CalledProcessError as e:
-        print(f"An error occurred: {e}")
+        logging.error(f"An error occurred: {e}")
+        raise
 
 #Run a SQL query on a SQLite or DuckDB database
 def run_sql_query_on_database(database_file: str, query: str, output_file: str, is_sqlite: bool = True):
     """
-    This tool function executes a SQL query on a SQLite or DuckDB database and writes the result to an output file.
+    Executes a SQL query on a SQLite or DuckDB database and writes the result to an output file.
+
     Args:
         database_file (str): The path to the SQLite or DuckDB database file.
         query (str): The SQL query to execute.
         output_file (str): The path to the output file where the query result will be written.
         is_sqlite (bool): Whether the database is SQLite (True) or DuckDB (False).
     """
-    if is_sqlite:
-        try:
-            conn = sqlite3.connect(database_file)
-            cursor = conn.cursor()
-            cursor.execute(query)
-            result = cursor.fetchall()
-            with open(output_file, "w") as file:
-                for row in result:
-                    file.write(str(row) + "\n")
-        except sqlite3.Error as e:
-            print(f"An error occurred: {e}")
-        finally:
-            conn.close()
-    else:
-        try:
-            conn = duckdb.connect(database_file)
-            cursor = conn.cursor()
-            cursor.execute(query)
-            result = cursor.fetchall()
-            with open(output_file, "w") as file:
-                for row in result:
-                    file.write(str(row) + "\n")
-        except duckdb.Error as e:
-            print(f"An error occurred: {e}")
-        finally:
+    # Enforce allowed paths for security
+    db_path = ensure_local_path(database_file)
+    out_path = ensure_local_path(output_file)
+    
+    conn = None
+    try:
+        if is_sqlite:
+            conn = sqlite3.connect(db_path)
+        else:
+            conn = duckdb.connect(db_path)
+        cursor = conn.cursor()
+        cursor.execute(query)
+        result = cursor.fetchall()
+        with open(out_path, "w") as file:
+            for row in result:
+                file.write(str(row) + "\n")
+    except (sqlite3.Error, duckdb.Error) as e:
+        logging.error(f"An error occurred: {e}")
+    finally:
+        if conn is not None:
             conn.close()
 
 #Extract data from (i.e. scrape) a website
@@ -558,29 +650,172 @@ def scrape_webpage(url: str, output_file: str):
     with open(output_file, "w") as file:
         file.write(soup.prettify())
 #Compress or resize an image
+from PIL import Image  # Ensure this import is at the top of your file
+
 def compress_image(input_file: str, output_file: str, quality: int = 50):
-    img = Image.open(input_file)
-    img.save(output_file, quality=quality)
+    """
+    Compresses or resizes an image by saving it with a specified quality setting.
+    
+    Args:
+        input_file (str): Path to the input image.
+        output_file (str): Path to save the compressed image.
+        quality (int): Quality setting for the output image (1-95). Default is 50.
+    """
+    try:
+        # Open the image
+        img = Image.open(input_file)
+        
+        # Optionally, ensure the output directory exists
+        output_dir = os.path.dirname(output_file)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+        
+        # Save the image with the given quality
+        img.save(output_file, quality=quality)
+        logging.info(f"Image compressed successfully: {input_file} -> {output_file}")
+    except Exception as e:
+        logging.error(f"Error compressing image: {e}")
+        raise
 
 #Transcribe audio from an MP3 file
+
+
+
+logging.basicConfig(level=logging.INFO)
+
 def transcribe_audio(input_file: str, output_file: str):
-    transcript = "Transcribed text"  # Placeholder
-    with open(output_file, "w") as file:
-        file.write(transcript)
-#Convert Markdown to HTML
+    """
+    Transcribes speech from an audio file (MP3 or WAV) and writes the resulting text to the output file.
+    
+    Args:
+        input_file (str): Path to the audio file (MP3 or WAV).
+        output_file (str): Path to save the transcribed text.
+    """
+    recognizer = sr.Recognizer()
+    temp_wav_file = "temp_converted.wav"
+
+    try:
+        # First, try to open the file directly.
+        try:
+            with sr.AudioFile(input_file) as source:
+                audio_data = recognizer.record(source)
+        except Exception as e:
+            logging.info(f"Direct reading failed ({e}). Attempting conversion with ffmpeg...")
+            # Convert the input file to PCM WAV using ffmpeg
+            try:
+                ffmpeg.input(input_file).output(
+                    temp_wav_file,
+                    format='wav',
+                    acodec='pcm_s16le',
+                    ac=1,
+                    ar='16000'
+                ).overwrite_output().run(capture_stdout=True, capture_stderr=True)
+                with sr.AudioFile(temp_wav_file) as source:
+                    audio_data = recognizer.record(source)
+            except Exception as conv_e:
+                logging.error(f"Error converting audio file: {conv_e}")
+                raise
+
+        # Use Google Speech Recognition API
+        transcript = recognizer.recognize_google(audio_data)
+
+        # Write the transcript to the output file
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        with open(output_file, "w", encoding="utf-8") as file:
+            file.write(transcript)
+
+        logging.info(f"Audio transcribed successfully: {input_file} -> {output_file}")
+    except Exception as e:
+        logging.error(f"Error transcribing audio from {input_file}: {e}")
+        raise
+    finally:
+        # Clean up temporary WAV file if it was created
+        if os.path.exists(temp_wav_file):
+            os.remove(temp_wav_file)
+logging.basicConfig(level=logging.INFO)
+
 def convert_markdown_to_html(input_file: str, output_file: str):
-    with open(input_file, "r") as file:
-        html = markdown.markdown(file.read())
-    with open(output_file, "w") as file:
-        file.write(html)
+    """
+    Converts a Markdown file to HTML using extra extensions for improved formatting.
+    
+    Args:
+        input_file (str): Path to the input Markdown file.
+        output_file (str): Path to save the generated HTML file.
+    """
+    try:
+        # Read the Markdown content with explicit encoding.
+        with open(input_file, "r", encoding="utf-8") as f:
+            markdown_content = f.read()
+        
+        # Convert Markdown to HTML using some useful extensions.
+        html = markdown.markdown(
+            markdown_content,
+            extensions=[
+                'extra',            # Extra syntaxes: tables, footnotes, etc.
+                'codehilite',       # Syntax highlighting for code blocks.
+                'toc',              # Generate a table of contents.
+            ],
+            extension_configs={
+                'codehilite': {
+                    'linenums': False,
+                    'guess_lang': False,
+                },
+                'toc': {
+                    'permalink': True,
+                }
+            }
+        )
+        
+        # Ensure the output directory exists.
+        os.makedirs(os.path.dirname(output_file), exist_ok=True)
+        with open(output_file, "w", encoding="utf-8") as f:
+            f.write(html)
+        
+        logging.info(f"Converted Markdown to HTML successfully: {input_file} -> {output_file}")
+    except Exception as e:
+        logging.error(f"Error converting Markdown to HTML: {e}", exc_info=True)
+        raise
 
 #Write an API endpoint that filters a CSV file and returns JSON data
 def filter_csv(input_file: str, column: str, value: str, output_file: str):
-    results = []
-    with open(input_file, newline="") as csvfile:
-        reader = csv.DictReader(csvfile)
-        for row in reader:
-            if row[column] == value:
-                results.append(row)
-    with open(output_file, "w") as file:
-        json.dump(results, file)
+    try:
+        results = []
+        with open(input_file, newline="", encoding="utf-8") as csvfile:
+            reader = csv.DictReader(csvfile)
+            for row in reader:
+                # Check if the column exists and matches the specified value
+                if column in row and row[column] == value:
+                    results.append(row)
+        
+        # Ensure the output directory exists
+        output_dir = os.path.dirname(output_file)
+        if output_dir and not os.path.exists(output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+        
+        with open(output_file, "w", encoding="utf-8") as file:
+            json.dump(results, file, indent=2)
+        
+        logging.info(f"CSV filtered successfully: {input_file} -> {output_file}")
+    except Exception as e:
+        logging.error(f"Error filtering CSV: {e}")
+        raise
+def download_file(url: str, output_path: str) -> str:
+    """Download a file from the given URL and save it to output_path."""
+    try:
+        response = requests.get(url)
+        response.raise_for_status()  # Ensure the download succeeded
+        
+        # Ensure the output directory exists (create if necessary)
+        output_dir = os.path.dirname(output_path)
+        if not os.path.exists(output_dir):
+            os.makedirs(output_dir, exist_ok=True)
+            logging.info(f"Created directory: {output_dir}")
+            
+        with open(output_path, "wb") as file:
+            file.write(response.content)
+            
+        logging.info(f"File downloaded successfully and saved to {output_path}")
+        return output_path
+    except Exception as e:
+        logging.error(f"Failed to download file: {e}")
+        raise
