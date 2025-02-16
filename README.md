@@ -1,141 +1,110 @@
-# LLM-Based-Workflow-automation 
-
-**LLM-Based-Workflow-automation** is a FastAPI-based automation agent that leverages Large Language Models (LLMs) to execute tasks described in plain English. It integrates structured tool functions, such as transcribing audio, processing CSV files, running SQL queries, scraping webpages, and more, based on user-defined tasks.
-
-## Table of Contents
-- [Overview](#overview)
-- [Features](#features)
-- [Architecture](#architecture)
-- [Installation](#installation)
-- [Usage](#usage)
-- [Endpoints](#endpoints)
-- [Extending the Project](#extending-the-project)
-- [Dependencies](#dependencies)
-- [License](#license)
+# LLM-Based Automation Agent
 
 ## Overview
-
-llmauto interprets natural language instructions and dynamically selects the appropriate tool functions to execute. It follows these steps:
-1. Converts Python tool functions into OpenAI-compatible schemas.
-2. Queries an LLM API to match a user's task with available functions.
-3. Executes the corresponding functions and returns results.
-4. Supports operations like file processing, transcription, database queries, and web scraping.
-
-This project is containerized using Docker for seamless deployment.
+The **LLM-Based Automation Agent** is designed to execute plain-English tasks using a Large Language Model (LLM) and integrate into a Continuous Integration (CI) pipeline. This automation agent processes structured and unstructured tasks while ensuring security and compliance constraints. The project is part of **DataWorks Solutions** and is evaluated based on accuracy, compliance, and robustness.
 
 ## Features
+- Accepts plain-English task descriptions via an API.
+- Parses, interprets, and executes tasks using **GPT-4o-Mini**.
+- Ensures security constraints (e.g., no external file access, no data deletion).
+- Supports multi-step operations and structured automation workflows.
+- Provides verifiable results via a dedicated endpoint.
+- Fully containerized with **Docker** and **Podman** compatibility.
 
-- **Natural Language Processing:** Users can specify tasks in plain English, and the system maps them to executable functions.
-- **Data Processing:** Handles Markdown conversion, CSV filtering, SQL queries, and data extraction.
-- **Audio and Image Processing:** Transcribes audio files and extracts text from images.
-- **Web Scraping:** Retrieves structured data from web pages.
-- **Automation and Integration:** Can be extended to handle CI/CD pipelines and custom workflows.
-- **Containerized Deployment:** Easily deployable via Docker.
+## API Endpoints
+### `POST /run?task=<task description>`
+Executes a task described in natural language.
+- **Success Response:** `200 OK`
+- **Task Error Response:** `400 Bad Request`
+- **Agent Error Response:** `500 Internal Server Error`
 
-## Architecture
+### `GET /read?path=<file path>`
+Retrieves the content of a specified file to verify output correctness.
+- **Success Response:** `200 OK` with file content.
+- **File Not Found Response:** `404 Not Found`
 
-The system comprises:
-- **FastAPI Backend:** Exposes RESTful endpoints for task execution and file management.
-- **LLM API Integration:** Communicates with an LLM API to interpret and execute tasks.
-- **Tool Functions:** Predefined functions for data processing, OCR, audio transcription, and more.
-- **Dockerized Setup:** Ensures compatibility across environments.
-
-## Installation
-
+## Installation & Setup
 ### Prerequisites
-- Docker installed.
-- Docker Hub account (for publishing the image).
+- Python 3.8+
+- Docker / Podman
+- AI Proxy Token (Environment Variable: `AIPROXY_TOKEN`)
 
-### Build the Docker Image
+### Clone the Repository
 ```sh
-docker build --no-cache -t sandeepstele/llmauto .
+git clone https://github.com/your-username/llm-based-automation-agent.git
+cd llm-based-automation-agent
 ```
 
-### Run the Docker Container
+### Install Dependencies
 ```sh
-docker run -p 8000:8000 --name fastapi-app sandeepstele/llmauto
+pip install -r requirements.txt
 ```
 
-## Usage
-
-### Example: Download and Transcribe an Audio File
-
-#### Step 1: Download Audio File
+### Run the Application
 ```sh
-curl -X POST "http://localhost:8000/run" \
--H "Content-Type: application/json" \
---data-urlencode "task=Download the audio file from 'https://raw.githubusercontent.com/sandeepstele/llm-proj-final/main/Harvard%20list%2001.wav' and save it as './data/harvard_audio.wav'."
+export AIPROXY_TOKEN=your_token_here
+python app.py
 ```
 
-#### Step 2: Transcribe the Audio File
+### Run with Docker
 ```sh
-curl -X POST "http://localhost:8000/run" \
--H "Content-Type: application/json" \
---data-urlencode "task=Transcribe the audio file './data/harvard_audio.wav' and save the result to './data/output/transcription.txt'."
+docker build -t llm-automation-agent .
+docker run --rm -e AIPROXY_TOKEN=$AIPROXY_TOKEN -p 8000:8000 llm-automation-agent
 ```
 
-#### Step 3: Read Transcription Output
+## Supported Tasks
+### Phase A: Operations Tasks
+- **A1:** Install `uv` and run `datagen.py` to generate required data.
+- **A2:** Format Markdown files using `prettier@3.4.2`.
+- **A3:** Count Wednesdays from a date file and store results.
+- **A4:** Sort contacts by last name, then first name.
+- **A5:** Extract the first line of the 10 most recent log files.
+- **A6:** Index Markdown files based on H1 headings.
+- **A7:** Extract the sender’s email address from an email file.
+- **A8:** Extract a credit card number from an image.
+- **A9:** Find the most similar comments using embeddings.
+- **A10:** Compute total sales for "Gold" tickets in an SQLite database.
+
+### Phase B: Business Tasks
+- **B1:** Prevent access outside `/data`.
+- **B2:** Prevent file deletion.
+- **B3-B10:** Handle data fetching, Git commits, SQL queries, web scraping, image compression, audio transcription, Markdown-to-HTML conversion, and CSV filtering.
+
+## Deployment
+### Run with Podman
 ```sh
-curl -G "http://localhost:8000/read" --data-urlencode "path=./data/output/transcription.txt"
+podman run --rm -e AIPROXY_TOKEN=$AIPROXY_TOKEN -p 8000:8000 sandeepstele/llmauto
 ```
 
-### Example: Download and Filter a CSV File
+### Docker Hub Repository
+The Docker image for this project is hosted at:
+[Docker Hub - sandeepstele/llmauto](https://hub.docker.com/r/sandeepstele/llmauto/tags)
 
-#### Step 1: Download CSV File
-```sh
-curl -X POST "http://localhost:8000/run" \
--H "Content-Type: application/json" \
---data-urlencode "task=Download the CSV file from 'https://people.sc.fsu.edu/~jburkardt/data/csv/addresses.csv' and save it as './data/addresses.csv'."
-```
+## Evaluation Criteria
+- **Phase A (10 Marks):** Each operational task implemented correctly earns 1 point.
+- **Phase B (10 Marks):** Each business task implemented correctly earns 1 point.
+- **Bonus Points:**
+  - Handling additional unspecified tasks.
+  - Unique code implementations.
 
-#### Step 2: Read CSV Content
-```sh
-curl -G "http://localhost:8000/read" --data-urlencode "path=./data/addresses.csv"
-```
+## Contribution Guidelines
+1. Fork the repository.
+2. Create a feature branch.
+3. Commit changes with meaningful messages.
+4. Open a pull request.
 
-## Endpoints
+## Author
+Developed by [Your Name](https://github.com/your-username).
 
-### `POST /run`
-**Description:** Processes a plain-English task and executes the corresponding tool function(s).
-
-**Example Request:**
-```sh
-curl -X POST "http://localhost:8000/run" \
--H "Content-Type: application/json" \
---data-urlencode "task=Transcribe the audio file './data/harvard_audio.wav' and save the result to './data/output/transcription.txt'."
-```
-
-### `GET /read`
-**Description:** Reads and returns the content of a specified file.
-
-**Example Request:**
-```sh
-curl -G "http://localhost:8000/read" --data-urlencode "path=./data/addresses.csv"
-```
-
-## Extending the Project
-
-To add a new tool function:
-1. Define the Python function.
-2. Convert it to an OpenAI-compatible schema.
-3. Register it in `function_mappings`.
-4. Rebuild the Docker image.
-
-## Dependencies
-
-- **FastAPI** – API framework.
-- **Uvicorn** – ASGI server.
-- **Requests** – HTTP client.
-- **python-dotenv** – Environment variable management.
-- **BeautifulSoup4** – Web scraping.
-- **Markdown** – Markdown processing.
-- **DuckDB & SQLite3** – Database handling.
-- **Numpy** – Numerical computing.
-- **SpeechRecognition** – Audio transcription.
-- **Pytesseract** – OCR processing.
-- **FFmpeg-python & Pydub** – Audio processing.
+## Credits
+This project is based on initial development by [ANdIeCOOl](https://github.com/ANdIeCOOl).
 
 ## License
+This project is licensed under the **MIT License**. See `LICENSE` for details.
 
-This project is licensed under the [MIT License](LICENSE).
+## Credits
+This project is based on initial development by [ANdIeCOOl](https://github.com/ANdIeCOOl).
+
+## Author
+Developed by [Your Name](https://github.com/sandeepstele).
 
