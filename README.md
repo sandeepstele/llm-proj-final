@@ -1,7 +1,7 @@
 # LLM-Based Automation Agent
 
 ## Overview
-The **LLM-Based Automation Agent** is designed to execute plain-English tasks using a Large Language Model (LLM) and integrate into a Continuous Integration (CI) pipeline. This automation agent processes structured and unstructured tasks while ensuring security and compliance constraints. The project is part of **DataWorks Solutions** and is evaluated based on accuracy, compliance, and robustness.
+The **LLM-Based Automation Agent** is designed to execute plain-English tasks using a Large Language Model (LLM) and integrate into a Continuous Integration (CI) pipeline. This automation agent processes structured and unstructured tasks while ensuring security and compliance constraints. 
 
 ## Features
 - Accepts plain-English task descriptions via an API.
