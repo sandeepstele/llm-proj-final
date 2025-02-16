@@ -78,12 +78,6 @@ podman run --rm -e AIPROXY_TOKEN=$AIPROXY_TOKEN -p 8000:8000 sandeepstele/llmaut
 The Docker image for this project is hosted at:
 [Docker Hub - sandeepstele/llmauto](https://hub.docker.com/r/sandeepstele/llmauto/tags)
 
-## Evaluation Criteria
-- **Phase A (10 Marks):** Each operational task implemented correctly earns 1 point.
-- **Phase B (10 Marks):** Each business task implemented correctly earns 1 point.
-- **Bonus Points:**
-  - Handling additional unspecified tasks.
-  - Unique code implementations.
 
 ## Contribution Guidelines
 1. Fork the repository.
