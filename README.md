@@ -53,22 +53,20 @@ docker run --rm -e AIPROXY_TOKEN=$AIPROXY_TOKEN -p 8000:8000 llm-automation-agen
 ```
 
 ## Supported Tasks
-### Phase A: Operations Tasks
-- **A1:** Install `uv` and run `datagen.py` to generate required data.
-- **A2:** Format Markdown files using `prettier@3.4.2`.
-- **A3:** Count Wednesdays from a date file and store results.
-- **A4:** Sort contacts by last name, then first name.
-- **A5:** Extract the first line of the 10 most recent log files.
-- **A6:** Index Markdown files based on H1 headings.
-- **A7:** Extract the sender’s email address from an email file.
-- **A8:** Extract a credit card number from an image.
-- **A9:** Find the most similar comments using embeddings.
-- **A10:** Compute total sales for "Gold" tickets in an SQLite database.
+- Install and run files to generate required data.
+- Format Markdown files using `prettier@3.4.2`.
+- Count data from a date file and store results.
+- Sort data.
+- Extract log files.
+- Index Markdown files based on H1 headings.
+- Extract the email address from an email file.
+- Extract number and text from an image.
+- Find the most similar comments using embeddings.
+- Query in an SQLite database.
+- Prevent access outside `/data`.
+- Prevent file deletion.
+- Handle data fetching, Git commits, SQL queries, web scraping, image compression, audio transcription, Markdown-to-HTML conversion, and CSV filtering.
 
-### Phase B: Business Tasks
-- **B1:** Prevent access outside `/data`.
-- **B2:** Prevent file deletion.
-- **B3-B10:** Handle data fetching, Git commits, SQL queries, web scraping, image compression, audio transcription, Markdown-to-HTML conversion, and CSV filtering.
 
 ## Deployment
 ### Run with Podman
@@ -94,7 +92,7 @@ The Docker image for this project is hosted at:
 4. Open a pull request.
 
 ## Author
-Developed by [Your Name](https://github.com/your-username).
+Developed by [Your Name](https://github.com/sandeepstele).
 
 ## Credits
 This project is based on initial development by [ANdIeCOOl](https://github.com/ANdIeCOOl).
@@ -105,6 +103,5 @@ This project is licensed under the **MIT License**. See `LICENSE` for details.
 ## Credits
 This project is based on initial development by [ANdIeCOOl](https://github.com/ANdIeCOOl).
 
-## Author
-Developed by [Your Name](https://github.com/sandeepstele).
+.
 
