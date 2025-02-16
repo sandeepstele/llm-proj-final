@@ -86,7 +86,7 @@ The Docker image for this project is hosted at:
 4. Open a pull request.
 
 ## Author
-Developed by [Your Name](https://github.com/sandeepstele).
+Developed by [Sandeep S](https://github.com/sandeepstele).
 
 ## Credits
 This project is based on initial development by [ANdIeCOOl](https://github.com/ANdIeCOOl).
