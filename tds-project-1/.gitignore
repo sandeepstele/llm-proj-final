@@ -1,4 +1,55 @@
+# Env and secrets
 .env
+.env.local
+.env.*.local
+*.pem
+
+# Virtual envs
 .venv
 venv
-__pycache__
+env
+.python-version
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+dist/
+build/
+eggs/
+*.manifest
+*.spec
+
+# uv
+.uv/
+
+# GPTCache (LangChain LLM cache)
+gptcache_map_*/
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs and coverage
+*.log
+.coverage
+htmlcov/
+.pytest_cache/
+.mypy_cache/
+
+# Docker
+.docker/
+
+# Local /data (if used outside container)
+# /data/

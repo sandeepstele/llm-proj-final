@@ -39,33 +39,14 @@ RUN apt-get update && apt-get install -y --fix-missing --no-install-recommends \
 # Install Prettier globally using npm
 RUN npm install -g prettier
 
-# Copy the FastAPI application code into the container
+# Copy requirements and application code
+COPY requirements.txt /app/
 COPY app /app
 
-# Install all required Python dependencies
+# Install Python dependencies (LangChain, LangSmith, LiteLLM, Pydantic AI, GPTCache, etc.)
+RUN pip install --no-cache-dir -r /app/requirements.txt && \
+    pip install --no-cache-dir uv pytesseract SpeechRecognition ffmpeg-python pydub
 
-RUN pip install --no-cache-dir \
-    uv \
-    pytesseract \
-    python-dotenv \
-    beautifulsoup4 \
-    markdown \
-    duckdb \
-    numpy \
-    python-dateutil \
-    docstring-parser \
-    httpx \
-    pydantic \
-    SpeechRecognition \
-    fastapi \
-    requests \
-    pillow \
-    uvicorn \
-    ffmpeg-python \
-    pydub 
-    
-RUN pip install --no-cache-dir \
-    ffmpeg-python 
 # Expose the port that the app runs on
 EXPOSE 8000
 
