@@ -5,7 +5,7 @@ import logging
 from typing import Any, Optional
 
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain_core.tools import tool
+from langchain_core.tools import StructuredTool
 from langchain_classic.agents.agent import AgentExecutor
 from langchain_classic.agents.tool_calling_agent.base import create_tool_calling_agent
 
@@ -38,7 +38,6 @@ from funtion_tasks import (
 
 logger = logging.getLogger(__name__)
 
-# Lazy imports to avoid loading LangChain/LiteLLM before config
 _agent_executor: Optional[AgentExecutor] = None
 
 
@@ -80,97 +79,28 @@ def _download_file_tool(url: str, output_path: str) -> str:
 
 
 def _build_tools() -> list:
+    def _tool(name: str, desc: str, func: Any) -> Any:
+        return StructuredTool.from_function(name=name, description=desc, func=func)
+
     return [
-        tool(
-            _download_file_tool,
-            name="download_file",
-            description="Download a file from the given URL and save it to output_path.",
-        ),
-        tool(
-            _install_and_run_script,
-            name="install_and_run_script",
-            description="Install a package, download a script from a URL, run with uv. Use when task says download or https.",
-        ),
-        tool(
-            format_file_with_prettier,
-            name="format_file_with_prettier",
-            description="Format a file using Prettier. Create sample markdown if missing.",
-        ),
-        tool(
-            _query_database,
-            name="query_database",
-            description="Execute a SQL query on SQLite and write result to output file.",
-        ),
-        tool(
-            extract_specific_text_using_llm,
-            name="extract_specific_text_using_llm",
-            description="Extract specific text from a file using an LLM; write to output file.",
-        ),
-        tool(
-            get_similar_text_using_embeddings,
-            name="get_similar_text_using_embeddings",
-            description="Find most similar lines in a file using embeddings; write to output file.",
-        ),
-        tool(
-            extract_text_from_image,
-            name="extract_text_from_image",
-            description="Extract text from an image (OCR + LLM); write to output file.",
-        ),
-        tool(
-            extract_specific_content_and_create_index,
-            name="extract_specific_content_and_create_index",
-            description="Index files by extension; extract content marker (e.g. H1); write index JSON.",
-        ),
-        tool(
-            process_and_write_logfiles,
-            name="process_and_write_logfiles",
-            description="Process N most recent log files, write X lines each to output file.",
-        ),
-        tool(
-            sort_json_by_keys,
-            name="sort_json_by_keys",
-            description="Sort JSON array by given keys; write to output file.",
-        ),
-        tool(
-            count_occurrences,
-            name="count_occurrences",
-            description="Count date components or regex pattern in file; write count to output file.",
-        ),
-        tool(
-            _fetch_data_from_api_and_save,
-            name="fetch_data_from_api_and_save",
-            description="Fetch data from API (GET or POST) and save JSON to file.",
-        ),
-        tool(
-            clone_git_repo_and_commit,
-            name="clone_git_repo_and_commit",
-            description="Clone a git repo, add all, commit with message.",
-        ),
-        tool(
-            scrape_webpage,
-            name="scrape_webpage",
-            description="Scrape a webpage and save prettified HTML to file.",
-        ),
-        tool(
-            compress_image,
-            name="compress_image",
-            description="Compress or resize image; save with given quality (1-95).",
-        ),
-        tool(
-            transcribe_audio,
-            name="transcribe_audio",
-            description="Transcribe audio (MP3/WAV) to text; write to output file.",
-        ),
-        tool(
-            convert_markdown_to_html,
-            name="convert_markdown_to_html",
-            description="Convert Markdown file to HTML.",
-        ),
-        tool(
-            filter_csv,
-            name="filter_csv",
-            description="Filter CSV by column=value; write matching rows as JSON to output file.",
-        ),
+        _tool("download_file", "Download a file from the given URL and save it to output_path.", _download_file_tool),
+        _tool("install_and_run_script", "Install package, download script from URL, run with uv. Use when task says download or https.", _install_and_run_script),
+        _tool("format_file_with_prettier", "Format a file using Prettier. Create sample markdown if missing.", format_file_with_prettier),
+        _tool("query_database", "Execute a SQL query on SQLite and write result to output file.", _query_database),
+        _tool("extract_specific_text_using_llm", "Extract specific text from a file using an LLM; write to output file.", extract_specific_text_using_llm),
+        _tool("get_similar_text_using_embeddings", "Find most similar lines in a file using embeddings; write to output file.", get_similar_text_using_embeddings),
+        _tool("extract_text_from_image", "Extract text from an image (OCR + LLM); write to output file.", extract_text_from_image),
+        _tool("extract_specific_content_and_create_index", "Index files by extension; extract content marker (e.g. H1); write index JSON.", extract_specific_content_and_create_index),
+        _tool("process_and_write_logfiles", "Process N most recent log files, write X lines each to output file.", process_and_write_logfiles),
+        _tool("sort_json_by_keys", "Sort JSON array by given keys; write to output file.", sort_json_by_keys),
+        _tool("count_occurrences", "Count date components or regex pattern in file; write count to output file.", count_occurrences),
+        _tool("fetch_data_from_api_and_save", "Fetch data from API (GET or POST) and save JSON to file.", _fetch_data_from_api_and_save),
+        _tool("clone_git_repo_and_commit", "Clone a git repo, add all, commit with message.", clone_git_repo_and_commit),
+        _tool("scrape_webpage", "Scrape a webpage and save prettified HTML to file.", scrape_webpage),
+        _tool("compress_image", "Compress or resize image; save with given quality (1-95).", compress_image),
+        _tool("transcribe_audio", "Transcribe audio (MP3/WAV) to text; write to output file.", transcribe_audio),
+        _tool("convert_markdown_to_html", "Convert Markdown file to HTML.", convert_markdown_to_html),
+        _tool("filter_csv", "Filter CSV by column=value; write matching rows as JSON to output file.", filter_csv),
     ]
 
 
@@ -196,9 +126,7 @@ def _get_agent_executor() -> AgentExecutor:
         [
             (
                 "system",
-                "You are an intelligent agent that understands and parses tasks. "
-                "You identify the best tool(s) to use and may chain multiple steps. "
-                "All file paths must be under /data. Never delete files.",
+                "Use the available tools to complete the user's task. All paths must be under /data. Do not delete files.",
             ),
             ("human", "{input}"),
             MessagesPlaceholder(variable_name="agent_scratchpad"),
@@ -221,7 +149,7 @@ def run_agent(task: str) -> dict[str, Any]:
     exe = _get_agent_executor()
     try:
         result = exe.invoke({"input": task})
-        out = result.get("output") or "Task completed."
+        out = result.get("output") or "Done."
         return {"status": "success", "message": out}
     except Exception as e:
         logger.exception("Agent run failed")

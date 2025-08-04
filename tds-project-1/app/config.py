@@ -58,7 +58,7 @@ def litellm_api_base() -> str | None:
 
 
 def setup_litellm_env() -> None:
-    """Set env vars so LiteLLM picks up api_key/api_base. Call before creating ChatLiteLLM."""
+    """Set LiteLLM env (api_key, api_base). Call before creating ChatLiteLLM."""
     if use_openrouter():
         if OPENROUTER_API_KEY and "OPENROUTER_API_KEY" not in os.environ:
             os.environ["OPENROUTER_API_KEY"] = OPENROUTER_API_KEY

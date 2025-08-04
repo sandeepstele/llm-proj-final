@@ -82,14 +82,10 @@ def _get_agent():
     _agent = Agent(
         model,
         output_type=str,
-        system_prompt=(
-            "You are an intelligent agent that understands and parses tasks. "
-            "You identify the best tool(s) to use and may chain multiple steps. "
-            "All file paths must be under /data. Never delete files."
-        ),
+        system_prompt="Use the available tools to complete the user's task. All paths must be under /data. Do not delete files.",
     )
 
-    # Register tools (tool_plain = no RunContext/deps)
+    # tool_plain: no deps
     @_agent.tool_plain
     def download_file_tool(url: str, output_path: str) -> str:
         """Download a file from the given URL and save it to output_path."""
@@ -216,7 +212,7 @@ def run_agent(task: str) -> dict[str, Any]:
     agent = _get_agent()
     try:
         result = agent.run_sync(task)
-        out = result.output if result.output else "Task completed."
+        out = result.output or "Done."
         return {"status": "success", "message": out}
     except Exception as e:
         logger.exception("Pydantic AI agent run failed")

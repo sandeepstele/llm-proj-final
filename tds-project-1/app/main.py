@@ -39,14 +39,7 @@ import uvicorn
 
 load_dotenv()
 
-# Config and LangSmith / GPTCache setup before any agent use
-from config import (
-    AGENT_BACKEND,
-    GPT_CACHE_ENABLED,
-    setup_langsmith_env,
-    RUNNING_IN_CODESPACES,
-    RUNNING_IN_DOCKER,
-)
+from config import AGENT_BACKEND, GPT_CACHE_ENABLED, setup_langsmith_env
 
 setup_langsmith_env()
 
@@ -77,13 +70,6 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
-def ensure_local_path(path: str) -> str:
-    """Ensure the path uses './data/...' locally, but '/data/...' in Docker."""
-    if (not RUNNING_IN_CODESPACES) and RUNNING_IN_DOCKER:
-        return path
-    return path.lstrip("/")
-
-
 @app.post("/run")
 async def run_task(task: str = Query(..., description="Plain-English task description")):
     logger.info("run_task: %s", task[:200] if len(task) > 200 else task)
@@ -97,18 +83,23 @@ async def run_task(task: str = Query(..., description="Plain-English task descri
 
         if result.get("status") == "error":
             raise HTTPException(status_code=500, detail=result.get("message", "Agent error."))
-        return {"status": "success", "message": result.get("message", "Task executed successfully.")}
+        return {"status": "success", "message": result.get("message", "Done.")}
     except HTTPException:
         raise
-    except Exception as e:
+    except Exception:
         logger.exception("Error executing task")
         raise HTTPException(status_code=500, detail="An internal error occurred while executing the task.")
 
 
 @app.get("/read", response_class=PlainTextResponse)
 async def read_file(path: str = Query(..., description="Path to the file to read")):
+    from funtion_tasks import ensure_local_path
+
     logger.info("read_file: %s", path)
-    output_file_path = ensure_local_path(path)
+    try:
+        output_file_path = ensure_local_path(path)
+    except ValueError as err:
+        raise HTTPException(status_code=403, detail=str(err))
     if not os.path.exists(output_file_path):
         raise HTTPException(status_code=404, detail="File not found.")
     with open(output_file_path, "r", encoding="utf-8") as f:
