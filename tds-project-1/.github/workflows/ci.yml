@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+jobs:
+  ci:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - uses: astral-sh/setup-uv@v4
+
+      - name: Create venv and install dependencies
+        run: |
+          uv venv
+          uv pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Ruff check
+        run: uv run ruff check tests
+
+      - name: Ruff format
+        run: uv run ruff format --check tests
+
+      - name: Pytest
+        env:
+          LITELLM_MODEL: openrouter/openai/gpt-4o-mini
+          OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+        run: uv run pytest tests/ -v
+
+      - name: Docker build
+        run: docker build -t llm-proj-final .

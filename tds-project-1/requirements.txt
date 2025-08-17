@@ -16,8 +16,6 @@ pillow>=10.0.0
 ffmpeg-python>=0.2.0
 pydub>=0.25.0
 SpeechRecognition>=3.10.0
-
-# LangChain, LangSmith, LiteLLM, Pydantic AI, GPTCache
 langchain>=0.1.0
 langchain-core>=0.1.0
 langchain-openai>=0.0.5

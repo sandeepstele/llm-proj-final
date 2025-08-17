@@ -53,6 +53,10 @@ Or use Podman:
 podman run --rm -e AIPROXY_TOKEN=$AIPROXY_TOKEN -p 8000:8000 llm-proj-final
 ```
 
+## CI
+
+GitHub Actions runs on push and pull requests: **Ruff** (check + format), **pytest**, and **Docker build**. The agent smoke test uses OpenRouter; add an `OPENROUTER_API_KEY` repository secret (Settings → Secrets and variables → Actions) to run it. If the secret is missing, the smoke test is skipped (e.g. in forks).
+
 ## API
 
 - **`POST /run?task=<plain-English>`** — Run the agent on a task. Returns `{ "status": "success", "message": "..." }` or `500` on error.
