@@ -8,12 +8,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# Existing
-AIPROXY_TOKEN: str = os.getenv("AIPROXY_TOKEN", "")
-OPENAI_BASE_URL: str = os.getenv(
-    "OPENAI_BASE_URL",
-    "http://aiproxy.sanand.workers.dev/openai/v1",
+# OpenAI (no proxy)
+OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
+OPENAI_API_BASE: str = os.getenv(
+    "OPENAI_API_BASE",
+    "https://api.openai.com/v1",
 )
+
+# Gemini (via LiteLLM)
+GOOGLE_API_KEY: str = os.getenv("GOOGLE_API_KEY", "")
 
 # LangSmith
 LANGCHAIN_TRACING_V2: str = os.getenv("LANGCHAIN_TRACING_V2", "false")
@@ -43,30 +46,51 @@ def use_openrouter() -> bool:
     return LITELLM_MODEL.strip().lower().startswith("openrouter/")
 
 
-def litellm_api_key() -> str:
-    """API key for LiteLLM: OpenRouter key when using openrouter, else AIPROXY_TOKEN."""
+def chat_base_url() -> str:
+    """Base URL for chat/embeddings. OpenRouter or OpenAI. No proxy."""
+    if use_openrouter():
+        return "https://openrouter.ai/api/v1"
+    return (OPENAI_API_BASE or "https://api.openai.com/v1").rstrip("/")
+
+
+def chat_api_key() -> str:
+    """API key for chat/embeddings. OpenRouter or OpenAI."""
     if use_openrouter():
         return OPENROUTER_API_KEY or ""
-    return AIPROXY_TOKEN or ""
+    return OPENAI_API_KEY or ""
+
+
+def chat_model() -> str:
+    """Model for chat/embeddings. OpenRouter: LITELLM_MODEL without prefix; else OPENAI_CHAT_MODEL or gpt-4o-mini."""
+    if use_openrouter():
+        m = LITELLM_MODEL.strip().lower().replace("openrouter/", "", 1)
+        return m or "openai/gpt-4o-mini"
+    return os.getenv("OPENAI_CHAT_MODEL", "gpt-4o-mini")
+
+
+def litellm_api_key() -> str:
+    """API key for LiteLLM. OpenRouter or OpenAI."""
+    return chat_api_key()
 
 
 def litellm_api_base() -> str | None:
-    """API base for LiteLLM: only set when using current proxy (non-OpenRouter)."""
+    """API base for LiteLLM. Only set when using OpenAI (non-OpenRouter)."""
     if use_openrouter():
         return None
-    return OPENAI_BASE_URL or None
+    return OPENAI_API_BASE or None
 
 
 def setup_litellm_env() -> None:
-    """Set LiteLLM env (api_key, api_base). Call before creating ChatLiteLLM."""
+    """Set LiteLLM env (api_key, api_base). Call before creating ChatLiteLLM. No proxy."""
     if use_openrouter():
         if OPENROUTER_API_KEY and "OPENROUTER_API_KEY" not in os.environ:
             os.environ["OPENROUTER_API_KEY"] = OPENROUTER_API_KEY
     else:
-        if AIPROXY_TOKEN and "OPENAI_API_KEY" not in os.environ:
-            os.environ["OPENAI_API_KEY"] = AIPROXY_TOKEN
-        if OPENAI_BASE_URL and "OPENAI_API_BASE" not in os.environ:
-            os.environ["OPENAI_API_BASE"] = OPENAI_BASE_URL
+        if OPENAI_API_KEY and "OPENAI_API_KEY" not in os.environ:
+            os.environ["OPENAI_API_KEY"] = OPENAI_API_KEY
+        base = OPENAI_API_BASE or "https://api.openai.com/v1"
+        if "OPENAI_API_BASE" not in os.environ:
+            os.environ["OPENAI_API_BASE"] = base
 
 
 def setup_langsmith_env() -> None:

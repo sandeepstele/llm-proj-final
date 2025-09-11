@@ -5,15 +5,16 @@ import logging
 from typing import Any, Optional
 
 from config import (
-    AIPROXY_TOKEN,
-    OPENAI_BASE_URL,
     LITELLM_MODEL,
-    use_openrouter,
+    OPENAI_API_BASE,
+    OPENAI_API_KEY,
     OPENROUTER_API_KEY,
+    use_openrouter,
 )
 from funtion_tasks import (
     format_file_with_prettier,
     query_database,
+    run_sql_query_on_database,
     extract_specific_text_using_llm,
     get_similar_text_using_embeddings,
     extract_text_from_image,
@@ -61,8 +62,8 @@ def _get_model():
         base = "https://openrouter.ai/api/v1"
         key = OPENROUTER_API_KEY or ""
     else:
-        base = OPENAI_BASE_URL or "http://aiproxy.sanand.workers.dev/openai/v1"
-        key = AIPROXY_TOKEN or ""
+        base = OPENAI_API_BASE or "https://api.openai.com/v1"
+        key = OPENAI_API_KEY or ""
 
     client = AsyncOpenAI(api_key=key, base_url=base)
     model_name = "gpt-4o-mini"
@@ -108,9 +109,22 @@ def _get_agent():
         return _query_db(db_file, output_file, query, query_params)
 
     @_agent.tool_plain
-    def extract_specific_text_using_llm_tool(input_file: str, output_file: str, task: str) -> str:
-        """Extract specific text from a file using an LLM; write to output file."""
-        extract_specific_text_using_llm(input_file, output_file, task)
+    def run_sql_query_on_database_tool(
+        database_file: str, query: str, output_file: str, is_sqlite: bool = True
+    ) -> str:
+        """Run SQL on SQLite or DuckDB; write all result rows to output file. is_sqlite selects backend."""
+        run_sql_query_on_database(database_file, query, output_file, is_sqlite)
+        return f"SQL executed; rows written to {output_file}"
+
+    @_agent.tool_plain
+    def extract_specific_text_using_llm_tool(
+        input_file: str,
+        output_file: str,
+        task: str,
+        max_chars: Optional[int] = None,
+    ) -> str:
+        """Extract specific text from a file using an LLM; write to output file. max_chars: truncate input if set."""
+        extract_specific_text_using_llm(input_file, output_file, task, max_chars=max_chars)
         return f"Extracted; written to {output_file}"
 
     @_agent.tool_plain
@@ -122,9 +136,15 @@ def _get_agent():
         return f"Similar texts written to {output_file}"
 
     @_agent.tool_plain
-    def extract_text_from_image_tool(image_path: str, output_file: str, task: str) -> str:
-        """Extract text from an image (OCR + LLM); write to output file."""
-        extract_text_from_image(image_path, output_file, task)
+    def extract_text_from_image_tool(
+        image_path: str,
+        output_file: str,
+        task: str,
+        strip_spaces: bool = False,
+        ocr_only: bool = False,
+    ) -> str:
+        """Extract text from an image (OCR + LLM); write to output file. strip_spaces: remove spaces (A8-style). ocr_only: skip LLM, write OCR only."""
+        extract_text_from_image(image_path, output_file, task, strip_spaces=strip_spaces, ocr_only=ocr_only)
         return f"Extracted; written to {output_file}"
 
     @_agent.tool_plain
@@ -187,9 +207,11 @@ def _get_agent():
         return f"Compressed image written to {output_file}"
 
     @_agent.tool_plain
-    def transcribe_audio_tool(input_file: str, output_file: str) -> str:
-        """Transcribe audio (MP3/WAV) to text; write to output file."""
-        transcribe_audio(input_file, output_file)
+    def transcribe_audio_tool(
+        input_file: str, output_file: str, language: str = "en-US"
+    ) -> str:
+        """Transcribe audio (MP3/WAV) to text; write to output file. language: e.g. en-US."""
+        transcribe_audio(input_file, output_file, language=language)
         return f"Transcript written to {output_file}"
 
     @_agent.tool_plain

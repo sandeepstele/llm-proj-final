@@ -33,6 +33,7 @@ jobs:
         env:
           LITELLM_MODEL: openrouter/openai/gpt-4o-mini
           OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
         run: uv run pytest tests/ -v
 
       - name: Docker build

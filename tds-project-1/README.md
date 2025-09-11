@@ -24,15 +24,18 @@ uv run evaluate.py
 
 ## Environment variables
 
+No proxy. All LLM calls use **OpenAI** or **Gemini** (or **OpenRouter**).
+
 | Variable | Purpose |
 |----------|---------|
-| `AIPROXY_TOKEN` | API key for OpenAI-compatible proxy (required for default model). |
-| `OPENAI_BASE_URL` | Proxy base URL (default: `http://aiproxy.sanand.workers.dev/openai/v1`). |
+| `OPENAI_API_KEY` | OpenAI API key (required for default OpenAI model). |
+| `OPENAI_API_BASE` | OpenAI API base URL (default: `https://api.openai.com/v1`). |
+| `GOOGLE_API_KEY` | Google API key when using Gemini models via LiteLLM. |
+| `LITELLM_MODEL` | Model string, e.g. `openai/gpt-4o-mini` (default) or `openrouter/openai/gpt-4o-mini`. |
+| `OPENROUTER_API_KEY` | Required when `LITELLM_MODEL` uses `openrouter/...`. |
 | `LANGCHAIN_TRACING_V2` | Set to `true` to enable LangSmith tracing. |
 | `LANGCHAIN_API_KEY` | LangSmith API key (when tracing enabled). |
 | `LANGCHAIN_PROJECT` | LangSmith project name (default: `llm-proj-final`). |
-| `LITELLM_MODEL` | Model string, e.g. `openai/gpt-4o-mini` (default) or `openrouter/openai/gpt-4o-mini`. |
-| `OPENROUTER_API_KEY` | Required when `LITELLM_MODEL` uses `openrouter/...`. |
 | `GPT_CACHE_ENABLED` | Set to `true` to enable GPTCache for LangChain LLM calls. |
 | `AGENT_BACKEND` | `langchain` (default) or `pydantic_ai`. |
 
@@ -44,18 +47,24 @@ Build and run:
 
 ```bash
 docker build -t llm-proj-final .
-docker run --rm -e AIPROXY_TOKEN=$AIPROXY_TOKEN -p 8000:8000 llm-proj-final
+docker run --rm -e OPENAI_API_KEY=$OPENAI_API_KEY -p 8000:8000 llm-proj-final
+```
+
+Or with OpenRouter:
+
+```bash
+docker run --rm -e OPENROUTER_API_KEY=$OPENROUTER_API_KEY -e LITELLM_MODEL=openrouter/openai/gpt-4o-mini -p 8000:8000 llm-proj-final
 ```
 
 Or use Podman:
 
 ```bash
-podman run --rm -e AIPROXY_TOKEN=$AIPROXY_TOKEN -p 8000:8000 llm-proj-final
+podman run --rm -e OPENAI_API_KEY=$OPENAI_API_KEY -p 8000:8000 llm-proj-final
 ```
 
 ## CI
 
-GitHub Actions runs on push and pull requests: **Ruff** (check + format), **pytest**, and **Docker build**. The agent smoke test uses OpenRouter; add an `OPENROUTER_API_KEY` repository secret (Settings → Secrets and variables → Actions) to run it. If the secret is missing, the smoke test is skipped (e.g. in forks).
+GitHub Actions runs on push and pull requests: **Ruff** (check + format), **pytest**, and **Docker build**. The agent smoke test uses OpenRouter; add an `OPENROUTER_API_KEY` repository secret (or use `OPENAI_API_KEY` with OpenAI) to run it. If neither is set, the smoke test is skipped (e.g. in forks).
 
 ## API
 

@@ -18,6 +18,7 @@ from config import (
 from funtion_tasks import (
     format_file_with_prettier,
     query_database,
+    run_sql_query_on_database,
     extract_specific_text_using_llm,
     get_similar_text_using_embeddings,
     extract_text_from_image,
@@ -50,6 +51,17 @@ def _query_database(
     """Execute SQL on SQLite and write result to file. query_params: list of values in order."""
     query_database(db_file, output_file, query, tuple(query_params))
     return f"Query executed; result written to {output_file}"
+
+
+def _run_sql_query_on_database(
+    database_file: str,
+    query: str,
+    output_file: str,
+    is_sqlite: bool = True,
+) -> str:
+    """Run SQL on SQLite or DuckDB; write all result rows to output file. is_sqlite selects backend."""
+    run_sql_query_on_database(database_file, query, output_file, is_sqlite)
+    return f"SQL executed; rows written to {output_file}"
 
 
 def _fetch_data_from_api_and_save(
@@ -87,9 +99,10 @@ def _build_tools() -> list:
         _tool("install_and_run_script", "Install package, download script from URL, run with uv. Use when task says download or https.", _install_and_run_script),
         _tool("format_file_with_prettier", "Format a file using Prettier. Create sample markdown if missing.", format_file_with_prettier),
         _tool("query_database", "Execute a SQL query on SQLite and write result to output file.", _query_database),
-        _tool("extract_specific_text_using_llm", "Extract specific text from a file using an LLM; write to output file.", extract_specific_text_using_llm),
+        _tool("run_sql_query_on_database", "Run SQL on SQLite or DuckDB; write all result rows to output file. is_sqlite selects backend.", _run_sql_query_on_database),
+        _tool("extract_specific_text_using_llm", "Extract specific text from a file using an LLM; write to output file. max_chars: truncate input if set.", extract_specific_text_using_llm),
         _tool("get_similar_text_using_embeddings", "Find most similar lines in a file using embeddings; write to output file.", get_similar_text_using_embeddings),
-        _tool("extract_text_from_image", "Extract text from an image (OCR + LLM); write to output file.", extract_text_from_image),
+        _tool("extract_text_from_image", "Extract text from an image (OCR + LLM); write to output file. strip_spaces: remove spaces (A8-style). ocr_only: skip LLM, write OCR only.", extract_text_from_image),
         _tool("extract_specific_content_and_create_index", "Index files by extension; extract content marker (e.g. H1); write index JSON.", extract_specific_content_and_create_index),
         _tool("process_and_write_logfiles", "Process N most recent log files, write X lines each to output file.", process_and_write_logfiles),
         _tool("sort_json_by_keys", "Sort JSON array by given keys; write to output file.", sort_json_by_keys),
@@ -98,7 +111,7 @@ def _build_tools() -> list:
         _tool("clone_git_repo_and_commit", "Clone a git repo, add all, commit with message.", clone_git_repo_and_commit),
         _tool("scrape_webpage", "Scrape a webpage and save prettified HTML to file.", scrape_webpage),
         _tool("compress_image", "Compress or resize image; save with given quality (1-95).", compress_image),
-        _tool("transcribe_audio", "Transcribe audio (MP3/WAV) to text; write to output file.", transcribe_audio),
+        _tool("transcribe_audio", "Transcribe audio (MP3/WAV) to text; write to output file. language: e.g. en-US.", transcribe_audio),
         _tool("convert_markdown_to_html", "Convert Markdown file to HTML.", convert_markdown_to_html),
         _tool("filter_csv", "Filter CSV by column=value; write matching rows as JSON to output file.", filter_csv),
     ]

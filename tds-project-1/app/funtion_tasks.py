@@ -21,6 +21,7 @@ import os
 import re
 import sqlite3
 import subprocess
+import time
 from typing import Any, Dict, List, Optional, Tuple
 
 import duckdb
@@ -38,10 +39,9 @@ import speech_recognition as sr
 import dotenv
 import markdown
 
+from config import chat_api_key, chat_base_url, chat_model, setup_litellm_env
+
 dotenv.load_dotenv()
-API_KEY = os.getenv("AIPROXY_TOKEN")
-URL_CHAT = "http://aiproxy.sanand.workers.dev/openai/v1/chat/completions"
-URL_EMBEDDING = "http://aiproxy.sanand.workers.dev/openai/v1/embeddings"
 RUNNING_IN_CODESPACES = "CODESPACES" in os.environ
 RUNNING_IN_DOCKER = os.path.exists("/.dockerenv")
 logging.basicConfig(level=logging.INFO)
@@ -85,19 +85,23 @@ def format_file_with_prettier(file_path: str, prettier_version: str):
         raise RuntimeError(f"Prettier failed with exit code {result.returncode}")
 
 def query_gpt(user_input: str, task: str):
-    response = requests.post(
-        URL_CHAT,
-        headers={"Authorization": f"Bearer {API_KEY}", "Content-Type": "application/json"},
+    setup_litellm_env()
+    base = chat_base_url().rstrip("/")
+    key = chat_api_key()
+    model = chat_model()
+    resp = requests.post(
+        f"{base}/chat/completions",
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
         json={
-            "model": "gpt-4o-mini",
+            "model": model,
             "messages": [
                 {"role": "system", "content": "JUST SO WHAT IS ASKED\nYOUR output is part of a program, using tool functions" + task},
                 {"role": "user", "content": user_input},
             ],
         },
     )
-    response.raise_for_status()
-    return response.json()
+    resp.raise_for_status()
+    return resp.json()
 
 def rewrite_sensitive_task(task: str) -> str:
     """Rewrite sensitive task descriptions in an indirect way."""
@@ -121,62 +125,57 @@ def rewrite_sensitive_task(task: str) -> str:
             return re.sub(keyword, replacement, task, flags=re.IGNORECASE)
     return task
 
-def extract_text_with_tesseract(image_path: str) -> str:
-    """Extract text from the image using Tesseract OCR."""
+def extract_text_with_tesseract(image_path: str, lang: Optional[str] = None) -> str:
+    """Extract text from the image using Tesseract OCR. lang: e.g. eng (optional)."""
     try:
         img = Image.open(image_path)
-        return pytesseract.image_to_string(img).strip()
+        kwargs: dict = {}
+        if lang:
+            kwargs["lang"] = lang
+        out = pytesseract.image_to_string(img, **kwargs).strip()
+        if not out:
+            logging.warning("OCR returned no text for %s", image_path)
+        return out
     except Exception as e:
         logging.error("OCR extraction failed: %s", e)
         return ""
 
+def _image_format_from_path(path: str) -> str:
+    """Infer image format from path; fallback to png."""
+    suf = path.rsplit(".", 1)[-1].lower() if "." in path else ""
+    allowed = {"png", "jpg", "jpeg", "gif", "webp", "bmp"}
+    return suf if suf in allowed else "png"
+
+
 def query_gpt_image(image_path: str, task: str):
-    """Rewrite task, run OCR, encode image, send OCR + image to LLM."""
-    
-    image_format = image_path.split(".")[-1]
+    """Rewrite task, run OCR, encode image, send OCR + image to LLM. Uses config (OpenAI/OpenRouter)."""
+    setup_litellm_env()
+    base = chat_base_url().rstrip("/")
+    key = chat_api_key()
+    model = chat_model()
+    image_format = _image_format_from_path(image_path)
     clean_task = rewrite_sensitive_task(task)
-    
     ocr_text = extract_text_with_tesseract(image_path)
-    with open(image_path, "rb") as file:
-        base64_image = base64.b64encode(file.read()).decode("utf-8")
-    
-    # Build the messages with both the OCR text and image data
+    with open(image_path, "rb") as f:
+        base64_image = base64.b64encode(f.read()).decode("utf-8")
     messages = [
-        {
-            "role": "system",
-            "content": (
-                "Extract the required input exactly as shown. Return only the final result without additional commentary."
-            )
-        },
-        {
-            "role": "user",
-            "content": (
-                f"{clean_task}. Here is the OCR extracted text from the image: {ocr_text}"
-            )
-        },
+        {"role": "system", "content": "Extract the required input exactly as shown. Return only the final result without additional commentary."},
+        {"role": "user", "content": f"{clean_task}. Here is the OCR extracted text from the image: {ocr_text}"},
         {
             "role": "user",
             "content": [
                 {"type": "text", "text": "Additionally, please refer to the image:"},
-                {"type": "image_url", "image_url": { "url": f"data:image/{image_format};base64,{base64_image}" }}
-            ]
-        }
-    ]
-    
-    response = requests.post(
-        URL_CHAT,
-        headers={
-            "Authorization": f"Bearer {API_KEY}",
-            "Content-Type": "application/json"
+                {"type": "image_url", "image_url": {"url": f"data:image/{image_format};base64,{base64_image}"}},
+            ],
         },
-        json={
-            "model": "gpt-4o-mini",
-            "messages": messages
-        }
+    ]
+    resp = requests.post(
+        f"{base}/chat/completions",
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json={"model": model, "messages": messages},
     )
-    
-    response.raise_for_status()
-    return response.json()
+    resp.raise_for_status()
+    return resp.json()
 
 
 def query_database(db_file: str, output_file: str, query: str, query_params: Tuple):
@@ -196,21 +195,43 @@ def query_database(db_file: str, output_file: str, query: str, query_params: Tup
         raise
     finally:
         conn.close()
-def extract_specific_text_using_llm(input_file: str, output_file: str, task: str):
-    """Extract text from input_file per task via LLM; write to output_file."""
+def extract_specific_text_using_llm(
+    input_file: str,
+    output_file: str,
+    task: str,
+    max_chars: Optional[int] = None,
+):
+    """Extract text from input_file per task via LLM; write to output_file. max_chars: truncate input if set."""
     input_file_path = ensure_local_path(input_file)
     output_file_path = ensure_local_path(output_file)
     with open(input_file_path, "r", encoding="utf-8") as f:
         text_info = f.read()
-    resp = query_gpt(text_info, task)
-    content = resp["choices"][0]["message"]["content"]
-    with open(output_file_path, "w", encoding="utf-8") as f:
-        f.write(content)
+    if max_chars is not None and len(text_info) > max_chars:
+        text_info = text_info[:max_chars] + "\n[... truncated ...]"
+        logging.info("extract_specific_text_using_llm: truncated input to %d chars", max_chars)
+    for attempt in range(2):
+        try:
+            resp = query_gpt(text_info, task)
+            content = resp["choices"][0]["message"]["content"]
+            with open(output_file_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            return
+        except requests.exceptions.RequestException as e:
+            if attempt == 0:
+                logging.warning("extract_specific_text_using_llm: attempt 1 failed, retrying: %s", e)
+                time.sleep(1)
+            else:
+                logging.error("extract_specific_text_using_llm failed: %s", e)
+                raise RuntimeError("Extract failed after retry.") from e
 def get_embeddings(texts: List[str]):
+    setup_litellm_env()
+    base = chat_base_url().rstrip("/")
+    key = chat_api_key()
+    emb_model = "text-embedding-3-small"
     resp = requests.post(
-        URL_EMBEDDING,
-        headers={"Authorization": f"Bearer {API_KEY}"},
-        json={"model": "text-embedding-3-small", "input": texts},
+        f"{base}/embeddings",
+        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
+        json={"model": emb_model, "input": texts},
     )
     resp.raise_for_status()
     return np.array([e["embedding"] for e in resp.json()["data"]])
@@ -247,12 +268,23 @@ def get_similar_text_using_embeddings(input_file: str, output_file: str, no_of_s
                     break
     with open(output_file_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines_out))
-def extract_text_from_image(image_path: str, output_file: str, task: str):
-    """Extract text from image via OCR + LLM. task describes what to extract."""
+def extract_text_from_image(
+    image_path: str,
+    output_file: str,
+    task: str,
+    strip_spaces: bool = False,
+    ocr_only: bool = False,
+):
+    """Extract text from image via OCR + LLM. task describes what to extract. strip_spaces: remove spaces (A8-style). ocr_only: skip LLM, write OCR only."""
     image_path_secure = ensure_local_path(image_path)
     output_file_path = ensure_local_path(output_file)
-    resp = query_gpt_image(image_path_secure, task)
-    content = resp["choices"][0]["message"]["content"].replace(" ", "")
+    if ocr_only:
+        content = extract_text_with_tesseract(image_path_secure)
+    else:
+        resp = query_gpt_image(image_path_secure, task)
+        content = resp["choices"][0]["message"]["content"]
+    if strip_spaces:
+        content = content.replace(" ", "")
     with open(output_file_path, "w", encoding="utf-8") as f:
         f.write(content)       
 def extract_specific_content_and_create_index(
@@ -428,8 +460,12 @@ def compress_image(input_file: str, output_file: str, quality: int = 50):
     img = Image.open(inp)
     img.save(out, quality=quality)
 
-def transcribe_audio(input_file: str, output_file: str):
-    """Transcribe MP3/WAV to text via Google Speech Recognition; write to output_file."""
+def transcribe_audio(
+    input_file: str,
+    output_file: str,
+    language: str = "en-US",
+):
+    """Transcribe MP3/WAV to text via Google Speech Recognition; write to output_file. language: e.g. en-US (or None for auto)."""
     inp = ensure_local_path(input_file)
     out = ensure_local_path(output_file)
     data_dir = enforce_data_directory("/data")
@@ -442,12 +478,24 @@ def transcribe_audio(input_file: str, output_file: str):
                 audio = rec.record(src)
         except Exception:
             ffmpeg.input(inp).output(
-                temp_wav, format="wav", acodec="pcm_s16le", ac=1, ar=16000
+                temp_wav, format="wav", acodec="pcm_s16le", ac=1, ar="16000"
             ).overwrite_output().run(capture_stdout=True, capture_stderr=True)
             with sr.AudioFile(temp_wav) as src:
                 audio = rec.record(src)
-        text = rec.recognize_google(audio)
-        os.makedirs(os.path.dirname(out), exist_ok=True)
+        kwargs: dict = {}
+        if language:
+            kwargs["language"] = language
+        try:
+            text = rec.recognize_google(audio, **kwargs)
+        except sr.UnknownValueError as e:
+            logging.error("Transcription failed (no speech or unclear): %s", e)
+            raise RuntimeError("Transcription failed: audio unclear or no speech detected.") from e
+        except sr.RequestError as e:
+            logging.error("Transcription failed (API error): %s", e)
+            raise RuntimeError("Transcription failed: Google Speech API error.") from e
+        d = os.path.dirname(out)
+        if d:
+            os.makedirs(d, exist_ok=True)
         with open(out, "w", encoding="utf-8") as f:
             f.write(text)
     finally:
@@ -469,7 +517,9 @@ def convert_markdown_to_html(input_file: str, output_file: str):
         extensions=["extra", "codehilite", "toc"],
         extension_configs={"codehilite": {"linenums": False, "guess_lang": False}, "toc": {"permalink": True}},
     )
-    os.makedirs(os.path.dirname(out), exist_ok=True)
+    d = os.path.dirname(out)
+    if d:
+        os.makedirs(d, exist_ok=True)
     with open(out, "w", encoding="utf-8") as f:
         f.write(html)
 
@@ -483,7 +533,9 @@ def filter_csv(input_file: str, column: str, value: str, output_file: str):
         for row in csv.DictReader(f):
             if column in row and row[column] == value:
                 results.append(row)
-    os.makedirs(os.path.dirname(out), exist_ok=True)
+    d = os.path.dirname(out)
+    if d:
+        os.makedirs(d, exist_ok=True)
     with open(out, "w", encoding="utf-8") as f:
         json.dump(results, f, indent=2)
 
@@ -493,7 +545,9 @@ def download_file(url: str, output_path: str) -> str:
     r = requests.get(url)
     r.raise_for_status()
     out = ensure_local_path(output_path)
-    os.makedirs(os.path.dirname(out), exist_ok=True)
+    d = os.path.dirname(out)
+    if d:
+        os.makedirs(d, exist_ok=True)
     with open(out, "wb") as f:
         f.write(r.content)
     return out
