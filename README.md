@@ -134,4 +134,3 @@ llm-proj-final/
 This project is licensed under the **MIT License**. See [LICENSE](LICENSE) for details.
 
 - **Author:** [Sandeep S](https://github.com/sandeepstele)
-- **Original development:** [ANdIeCOOl](https://github.com/ANdIeCOOl)
